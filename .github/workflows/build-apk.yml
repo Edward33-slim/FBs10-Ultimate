@@ -12,42 +12,69 @@ permissions:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract FBs10 project
+      - name: Find and extract FBs10 ZIP
+        shell: bash
         run: |
+          set -e
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file was found in the repository root."
+            echo "Files in repository:"
+            ls -la
+            exit 1
+          fi
+
+          echo "Using ZIP: $ZIP_FILE"
           rm -rf build-src
-          mkdir build-src
-          unzip -q FBs10_GitHub_Ready.zip -d build-src
+          mkdir -p build-src
+          unzip -q "$ZIP_FILE" -d build-src
+
+          PROJECT_DIR=$(find build-src -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle" ] && [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
+            echo "ERROR: Android/Gradle project was not found after extracting the ZIP."
+            find build-src -maxdepth 4 -type f | sort | head -200
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.2.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2.1'
+          gradle-version: "8.2.1"
 
-      - name: Build APK
-        working-directory: build-src
+      - name: Build release APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          gradle --no-daemon :app:assembleRelease
+          gradle --no-daemon --stacktrace :app:assembleRelease
 
-      - name: Show APK
+      - name: List generated APK files
+        if: always()
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          find build-src/app/build/outputs/apk -type f -name "*.apk" -print
+          find app/build/outputs/apk -type f -name "*.apk" -print || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: FBs10-APK
-          path: build-src/app/build/outputs/apk/release/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
