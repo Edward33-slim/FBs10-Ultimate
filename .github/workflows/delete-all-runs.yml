@@ -1,4 +1,4 @@
-name: Delete All Actions Runs
+name: Delete All Old Actions Runs
 
 on:
   workflow_dispatch:
@@ -7,51 +7,34 @@ permissions:
   actions: write
 
 jobs:
-  delete-all:
+  delete-runs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Delete all workflow runs
+      - name: Delete old workflow runs
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
-          echo "Deleting old workflow runs..."
+          echo "Getting workflow runs..."
 
-          while true; do
-            RUNS=$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/$REPO/actions/runs?per_page=100" \
-              --jq '.workflow_runs[].id')
+          gh api \
+            --paginate \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | "\(.id) \(.status)"' |
+          while read RUN_ID STATUS; do
 
-            OLD_RUNS=""
+            if [ "$RUN_ID" != "$CURRENT_RUN_ID" ] && [ "$STATUS" = "completed" ]; then
+              echo "Deleting completed run: $RUN_ID"
 
-            for RUN_ID in $RUNS; do
-              if [ "$RUN_ID" != "$CURRENT_RUN_ID" ]; then
-                OLD_RUNS="$OLD_RUNS $RUN_ID"
-              fi
-            done
-
-            if [ -z "$OLD_RUNS" ]; then
-              break
-            fi
-
-            for RUN_ID in $OLD_RUNS; do
-              echo "Deleting run $RUN_ID"
               gh api \
                 --method DELETE \
                 -H "Accept: application/vnd.github+json" \
                 "/repos/$REPO/actions/runs/$RUN_ID" || true
-            done
+            fi
+
           done
 
-          echo "All old runs deleted."
-          echo "Deleting this run last..."
-
-          gh api \
-            --method DELETE \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/$REPO/actions/runs/$CURRENT_RUN_ID" || true
-
-          echo "Done."
+          echo "Finished deleting old runs."
