@@ -1,4 +1,4 @@
-name: Build BRs10 APK
+name: Build FBs10 APK
 
 on:
   push:
@@ -22,26 +22,72 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 35
+      - name: Install Android SDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Set up Gradle 8.2.1
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.2.1'
 
-      - name: Build release APK
-        run: gradle --no-daemon --stacktrace :app:assembleRelease
+      - name: Extract Android project
+        run: |
+          rm -rf extracted
+          mkdir -p extracted
 
-      - name: List generated APK files
-        if: always()
-        run: find app/build/outputs -type f -name "*.apk" -print
+          unzip -q "FBs10 Browser v5 FIXED.zip" -d extracted
+
+          echo "Extracted files:"
+          find extracted -maxdepth 3 -type f | head -100
+
+      - name: Find Android project
+        run: |
+          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted" \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found."
+            echo "Searching for build files:"
+            find "$GITHUB_WORKSPACE/extracted" \
+              -type f \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+              -print
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at:"
+          echo "$PROJECT_DIR"
+
+      - name: Build release APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle --no-daemon --stacktrace :app:assembleRelease
+
+      - name: Collect APK
+        run: |
+          rm -rf apk-output
+          mkdir -p apk-output
+
+          find "$PROJECT_DIR/app/build/outputs" \
+            -type f \
+            -name "*.apk" \
+            -exec cp {} apk-output/ \;
+
+          echo "Generated APK files:"
+          find apk-output -type f -name "*.apk" -print
+
+          if ! find apk-output -type f -name "*.apk" | grep -q .; then
+            echo "ERROR: No APK was generated."
+            exit 1
+          fi
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: BRs10-release-APK
-          path: app/build/outputs/apk/release/*.apk
+          name: FBs10-release-APK
+          path: apk-output/*.apk
