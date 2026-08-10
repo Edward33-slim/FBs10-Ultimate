@@ -1,4 +1,4 @@
-name: Delete All Old Actions Runs
+name: Delete Old Actions Runs
 
 on:
   workflow_dispatch:
@@ -11,20 +11,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Delete old runs
+      - name: Delete all old runs
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           CURRENT: ${{ github.run_id }}
         run: |
-          gh api --paginate \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/$REPO/actions/runs?per_page=100" \
-            --jq '.workflow_runs[].id' |
-          while read ID; do
-            if [ "$ID" != "$CURRENT" ]; then
-              echo "Deleting $ID"
-              gh api --method DELETE \
-                "/repos/$REPO/actions/runs/$ID" || true
+          while true; do
+            IDS=$(gh api \
+              "/repos/$REPO/actions/runs?per_page=100" \
+              --jq '.workflow_runs[].id')
+
+            FOUND=false
+
+            for ID in $IDS; do
+              if [ "$ID" != "$CURRENT" ]; then
+                FOUND=true
+                echo "Deleting run: $ID"
+                gh api --method DELETE \
+                  "/repos/$REPO/actions/runs/$ID" || true
+              fi
+            done
+
+            if [ "$FOUND" = "false" ]; then
+              break
             fi
+
+            sleep 2
           done
+
+          echo "DONE"
