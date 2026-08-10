@@ -1,4 +1,4 @@
-name: Delete All Old Actions Runs
+name: Delete All Actions Runs
 
 on:
   workflow_dispatch:
@@ -7,37 +7,51 @@ permissions:
   actions: write
 
 jobs:
-  delete-runs:
+  delete-all:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Delete all old workflow runs
+      - name: Delete all workflow runs
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
-          page=1
+          echo "Deleting old workflow runs..."
 
           while true; do
-            runs=$(gh api \
+            RUNS=$(gh api \
               -H "Accept: application/vnd.github+json" \
-              "/repos/$REPO/actions/runs?per_page=100&page=$page" \
+              "/repos/$REPO/actions/runs?per_page=100" \
               --jq '.workflow_runs[].id')
 
-            [ -z "$runs" ] && break
+            OLD_RUNS=""
 
-            for run_id in $runs; do
-              if [ "$run_id" != "$CURRENT_RUN_ID" ]; then
-                echo "Deleting run: $run_id"
-                gh api \
-                  --method DELETE \
-                  -H "Accept: application/vnd.github+json" \
-                  "/repos/$REPO/actions/runs/$run_id" || true
+            for RUN_ID in $RUNS; do
+              if [ "$RUN_ID" != "$CURRENT_RUN_ID" ]; then
+                OLD_RUNS="$OLD_RUNS $RUN_ID"
               fi
             done
 
-            page=$((page + 1))
+            if [ -z "$OLD_RUNS" ]; then
+              break
+            fi
+
+            for RUN_ID in $OLD_RUNS; do
+              echo "Deleting run $RUN_ID"
+              gh api \
+                --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "/repos/$REPO/actions/runs/$RUN_ID" || true
+            done
           done
 
-          echo "Finished."
+          echo "All old runs deleted."
+          echo "Deleting this run last..."
+
+          gh api \
+            --method DELETE \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO/actions/runs/$CURRENT_RUN_ID" || true
+
+          echo "Done."
